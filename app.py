@@ -8,9 +8,9 @@ import pandas as pd
 import streamlit as st
 
 
-# -------------------------
-# 頁面設定
-# -------------------------
+# =========================
+# 1. 頁面設定
+# =========================
 st.set_page_config(
     page_title="員工報銷小助手",
     page_icon="🧾",
@@ -21,9 +21,9 @@ st.title("🧾 員工費用報銷小助手")
 st.caption("油資與停車發票一次填寫，完成後可下載 Excel")
 
 
-# -------------------------
-# 初始化發票資料
-# -------------------------
+# =========================
+# 2. 初始化發票資料
+# =========================
 if "invoices" not in st.session_state:
     st.session_state.invoices = [
         {
@@ -32,19 +32,41 @@ if "invoices" not in st.session_state:
             "invoice_date": date.today(),
             "invoice_no": "",
             "seller_id": "",
-            "amount": 0.0,
+            "net_amount": 0.0,
+            "tax_amount": 0.0,
         }
     ]
 
-# 確保每張發票有獨立識別碼
+# 確保每張發票都有獨立 ID
 for invoice in st.session_state.invoices:
     if "id" not in invoice:
         invoice["id"] = str(uuid4())
 
+    # 相容舊版發票資料
+    if "net_amount" not in invoice:
+        invoice["net_amount"] = float(
+            invoice.pop("amount", 0.0)
+        )
 
-# -------------------------
-# 基本資料
-# -------------------------
+    if "tax_amount" not in invoice:
+        invoice["tax_amount"] = 0.0
+
+    if "invoice_date" not in invoice:
+        invoice["invoice_date"] = date.today()
+
+    if "invoice_no" not in invoice:
+        invoice["invoice_no"] = ""
+
+    if "seller_id" not in invoice:
+        invoice["seller_id"] = ""
+
+    if "category" not in invoice:
+        invoice["category"] = "⛽ 油資"
+
+
+# =========================
+# 3. 基本資料
+# =========================
 st.subheader("👤 基本資料")
 
 employee_name = st.text_input(
@@ -60,20 +82,18 @@ report_date = st.date_input(
 st.divider()
 
 
-# -------------------------
-# 發票明細
-# -------------------------
+# =========================
+# 4. 發票明細
+# =========================
 st.subheader("🧾 發票明細")
-st.info("一張發票填一列，需要幾張就按「新增一張發票」。")
+st.info("一張發票填一列，可新增多張發票。")
 
 for i, invoice in enumerate(st.session_state.invoices):
     invoice_id = invoice["id"]
 
     st.markdown(f"### 第 {i + 1} 張發票")
 
-    col1, col2, col3, col4, col5 = st.columns(
-        [1.2, 1.2, 1.8, 1.8, 1.2]
-    )
+    col1, col2, col3 = st.columns([1, 1, 1])
 
     with col1:
         category = st.selectbox(
@@ -100,6 +120,8 @@ for i, invoice in enumerate(st.session_state.invoices):
             key=f"invoice_no_{invoice_id}",
         )
 
+    col4, col5, col6 = st.columns([1, 1, 1])
+
     with col4:
         seller_id = st.text_input(
             "賣方統編",
@@ -109,12 +131,21 @@ for i, invoice in enumerate(st.session_state.invoices):
         )
 
     with col5:
-        amount = st.number_input(
-            "金額",
+        net_amount = st.number_input(
+            "未稅金額",
             min_value=0.0,
-            value=float(invoice["amount"]),
+            value=float(invoice["net_amount"]),
             step=1.0,
-            key=f"amount_{invoice_id}",
+            key=f"net_amount_{invoice_id}",
+        )
+
+    with col6:
+        tax_amount = st.number_input(
+            "稅額",
+            min_value=0.0,
+            value=float(invoice["tax_amount"]),
+            step=1.0,
+            key=f"tax_amount_{invoice_id}",
         )
 
     # 更新發票資料
@@ -122,12 +153,21 @@ for i, invoice in enumerate(st.session_state.invoices):
     invoice["invoice_date"] = invoice_date
     invoice["invoice_no"] = invoice_no
     invoice["seller_id"] = seller_id
-    invoice["amount"] = amount
+    invoice["net_amount"] = net_amount
+    invoice["tax_amount"] = tax_amount
+
+    # 計算含稅總額
+    total_amount = net_amount + tax_amount
+
+    st.metric(
+        f"第 {i + 1} 張發票含稅總額",
+        f"${total_amount:,.0f}",
+    )
 
     # 刪除發票
     if len(st.session_state.invoices) > 1:
         if st.button(
-            "🗑️ 刪除這張",
+            "🗑️ 刪除這張發票",
             key=f"delete_{invoice_id}",
         ):
             st.session_state.invoices.pop(i)
@@ -136,9 +176,9 @@ for i, invoice in enumerate(st.session_state.invoices):
     st.divider()
 
 
-# -------------------------
-# 新增發票
-# -------------------------
+# =========================
+# 5. 新增發票
+# =========================
 if st.button(
     "➕ 新增一張發票",
     use_container_width=True,
@@ -150,52 +190,89 @@ if st.button(
             "invoice_date": date.today(),
             "invoice_no": "",
             "seller_id": "",
-            "amount": 0.0,
+            "net_amount": 0.0,
+            "tax_amount": 0.0,
         }
     )
     st.rerun()
 
 
-# -------------------------
-# 報銷統計
-# -------------------------
+# =========================
+# 6. 報銷統計
+# =========================
 st.subheader("💰 報銷統計")
 
+net_total = sum(
+    x["net_amount"]
+    for x in st.session_state.invoices
+)
+
+tax_total = sum(
+    x["tax_amount"]
+    for x in st.session_state.invoices
+)
+
 oil_total = sum(
-    invoice["amount"]
-    for invoice in st.session_state.invoices
-    if invoice["category"] == "⛽ 油資"
+    x["net_amount"] + x["tax_amount"]
+    for x in st.session_state.invoices
+    if x["category"] == "⛽ 油資"
 )
 
 parking_total = sum(
-    invoice["amount"]
-    for invoice in st.session_state.invoices
-    if invoice["category"] == "🅿️ 停車"
+    x["net_amount"] + x["tax_amount"]
+    for x in st.session_state.invoices
+    if x["category"] == "🅿️ 停車"
 )
 
-grand_total = oil_total + parking_total
+grand_total = net_total + tax_total
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.metric("⛽ 油資合計", f"${oil_total:,.0f}")
+    st.metric(
+        "未稅金額合計",
+        f"${net_total:,.0f}",
+    )
 
 with col2:
-    st.metric("🅿️ 停車合計", f"${parking_total:,.0f}")
+    st.metric(
+        "稅額合計",
+        f"${tax_total:,.0f}",
+    )
 
 with col3:
-    st.metric("💰 報銷總額", f"${grand_total:,.0f}")
+    st.metric(
+        "💰 報銷總額（含稅）",
+        f"${grand_total:,.0f}",
+    )
+
+col4, col5 = st.columns(2)
+
+with col4:
+    st.metric(
+        "⛽ 油資合計（含稅）",
+        f"${oil_total:,.0f}",
+    )
+
+with col5:
+    st.metric(
+        "🅿️ 停車合計（含稅）",
+        f"${parking_total:,.0f}",
+    )
 
 st.divider()
 
 
-# -------------------------
-# Excel 產生功能
-# -------------------------
+# =========================
+# 7. 建立 Excel
+# =========================
 def create_excel():
     data = []
 
     for invoice in st.session_state.invoices:
+        net = invoice["net_amount"]
+        tax = invoice["tax_amount"]
+
         data.append(
             {
                 "員工姓名": employee_name.strip(),
@@ -204,11 +281,25 @@ def create_excel():
                 "發票日期": invoice["invoice_date"],
                 "發票號碼": invoice["invoice_no"].strip(),
                 "賣方統編": invoice["seller_id"].strip(),
-                "金額": invoice["amount"],
+                "未稅金額": net,
+                "稅額": tax,
+                "含稅總額": net + tax,
             }
         )
 
-    df = pd.DataFrame(data)
+    columns = [
+        "員工姓名",
+        "報銷日期",
+        "費用類別",
+        "發票日期",
+        "發票號碼",
+        "賣方統編",
+        "未稅金額",
+        "稅額",
+        "含稅總額",
+    ]
+
+    df = pd.DataFrame(data, columns=columns)
 
     output = BytesIO()
 
@@ -224,28 +315,58 @@ def create_excel():
         )
 
         # 油資明細
-        oil_df = df[df["費用類別"] == "⛽ 油資"]
-        oil_df.to_excel(
+        df[df["費用類別"] == "⛽ 油資"].to_excel(
             writer,
             index=False,
             sheet_name="油資",
         )
 
         # 停車明細
-        parking_df = df[df["費用類別"] == "🅿️ 停車"]
-        parking_df.to_excel(
+        df[df["費用類別"] == "🅿️ 停車"].to_excel(
             writer,
             index=False,
             sheet_name="停車",
         )
 
+        # 調整 Excel 欄寬
+        for worksheet in writer.sheets.values():
+            worksheet.freeze_panes = "A2"
+            worksheet.auto_filter.ref = worksheet.dimensions
+
+            for column_cells in worksheet.columns:
+                max_length = max(
+                    len(str(cell.value or ""))
+                    for cell in column_cells
+                )
+                column_letter = column_cells[0].column_letter
+
+                worksheet.column_dimensions[
+                    column_letter
+                ].width = min(max_length + 3, 30)
+
+            # 金額欄位使用數字格式
+            headers = {
+                cell.value: cell.column
+                for cell in worksheet[1]
+            }
+
+            for header in ["未稅金額", "稅額", "含稅總額"]:
+                if header in headers:
+                    col_index = headers[header]
+
+                    for row in range(2, worksheet.max_row + 1):
+                        worksheet.cell(
+                            row=row,
+                            column=col_index,
+                        ).number_format = '#,##0.00'
+
     output.seek(0)
     return output.getvalue()
 
 
-# -------------------------
-# 送出及驗證
-# -------------------------
+# =========================
+# 8. 送出及下載
+# =========================
 st.subheader("📊 完成報銷")
 
 if st.button(
@@ -273,12 +394,20 @@ if st.button(
 
         if not re.fullmatch(r"\d{8}", seller_id):
             errors.append(
-                f"第 {row_number} 張發票的賣方統編必須是 8 位數字。"
+                f"第 {row_number} 張發票的賣方統編"
+                "必須是 8 位數字。"
             )
 
-        if invoice["amount"] <= 0:
+        if (
+            invoice["net_amount"] + invoice["tax_amount"]
+        ) <= 0:
             errors.append(
-                f"第 {row_number} 張發票金額必須大於 0。"
+                f"第 {row_number} 張發票含稅總額必須大於 0。"
+            )
+
+        if invoice["net_amount"] < 0 or invoice["tax_amount"] < 0:
+            errors.append(
+                f"第 {row_number} 張發票金額不可為負數。"
             )
 
     if errors:
@@ -303,7 +432,7 @@ if st.button(
             st.success("🎉 報銷資料整理完成！")
 
             st.download_button(
-                label="⬇️ 下載 Excel",
+                label="⬇️ 下載 Excel 報銷檔",
                 data=excel_file,
                 file_name=filename,
                 mime=(
@@ -315,3 +444,4 @@ if st.button(
 
         except Exception as e:
             st.error(f"Excel 產生失敗：{e}")
+
