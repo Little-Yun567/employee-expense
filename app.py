@@ -16,8 +16,15 @@ st.caption("油資與停車發票一次填寫，完成後可下載 Excel")
 # 初始化發票資料
 # -------------------------
 if "invoices" not in st.session_state:
-st.session_state.invoices = [
-{
+    st.session_state.invoices = [
+        {
+            "category": "⛽ 油資",
+            "invoice_date": date.today(),
+            "invoice_no": "",
+            "seller_id": "",
+            "amount": 0.0
+        }
+    ]
 "category": "⛽ 油資",
 "invoice_date": date.today(),
 "invoice_no": "",
