@@ -68,10 +68,24 @@ for invoice in st.session_state.invoices:
     if "category" not in invoice:
         invoice["category"] = "⛽ 油資"
 
-    # 稅額改為依未稅金額自動計算
-    invoice["tax_amount"] = calculate_tax(
-        float(invoice.get("net_amount", 0.0))
-    )
+    # 保留已填寫或手動修正的稅額；只有未設定時才依 5% 預填
+    if "tax_amount" not in invoice:
+        invoice["tax_amount"] = calculate_tax(
+            float(invoice.get("net_amount", 0.0))
+        )
+
+
+def update_tax_from_net(invoice_id):
+    """未稅金額變更時，先用 5% 預填稅額；之後仍可手動修改。"""
+    for item in st.session_state.invoices:
+        if item["id"] == invoice_id:
+            net_key = f"net_amount_{invoice_id}"
+            tax_key = f"tax_amount_{invoice_id}"
+            net = float(st.session_state.get(net_key, item["net_amount"]))
+            item["net_amount"] = net
+            item["tax_amount"] = calculate_tax(net)
+            st.session_state[tax_key] = item["tax_amount"]
+            break
 
 
 # =========================
@@ -97,8 +111,8 @@ st.divider()
 # =========================
 st.subheader("🧾 發票明細")
 st.info(
-    "輸入未稅金額後，系統會依 5% 稅率自動計算稅額。"
-    "若發票上的稅額與系統計算不同，請以發票實際金額及公司規定為準。"
+    "輸入或修改未稅金額時，系統會先依 5% 稅率預填稅額；"
+    "稅額欄位可以手動修改，請以發票實際稅額及公司規定為準。"
 )
 
 for i, invoice in enumerate(st.session_state.invoices):
@@ -148,19 +162,17 @@ for i, invoice in enumerate(st.session_state.invoices):
             value=float(invoice["net_amount"]),
             step=1.0,
             key=f"net_amount_{invoice_id}",
+            on_change=update_tax_from_net,
+            args=(invoice_id,),
         )
 
-    # 依未稅金額即時計算稅額
-    tax_amount = calculate_tax(net_amount)
-
     with col6:
-        st.number_input(
-            "自動計算稅額（5%）",
+        tax_amount = st.number_input(
+            "稅額（可手動修改）",
             min_value=0,
-            value=tax_amount,
+            value=int(invoice.get("tax_amount", calculate_tax(net_amount))),
             step=1,
-            disabled=True,
-            key=f"tax_display_{invoice_id}",
+            key=f"tax_amount_{invoice_id}",
         )
 
     # 更新發票資料
@@ -223,12 +235,12 @@ oil_net_total = sum(
 )
 
 tax_total = sum(
-    calculate_tax(x["net_amount"])
+    int(x["tax_amount"])
     for x in st.session_state.invoices
 )
 
 grand_total = sum(
-    x["net_amount"] + calculate_tax(x["net_amount"])
+    x["net_amount"] + int(x["tax_amount"])
     for x in st.session_state.invoices
 )
 
@@ -271,7 +283,7 @@ def create_excel():
 
     for invoice in st.session_state.invoices:
         net = float(invoice["net_amount"])
-        tax = calculate_tax(net)
+        tax = int(invoice["tax_amount"])
 
         data.append(
             {
@@ -423,5 +435,3 @@ if st.button(
 
         except Exception as e:
             st.error(f"Excel 產生失敗：{e}")
-
-
